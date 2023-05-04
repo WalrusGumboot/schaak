@@ -178,7 +178,7 @@ fn main() {
     let font_context = ttf::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    let font = font_context.load_font("assets/fonts/input.ttf", 16);
+    let font = font_context.load_font("assets/fonts/input.ttf", 16).unwrap();
 
     let window = video_subsystem.window("schaak", SQUARE_W * 8 + 300, SQUARE_W * 8)
         .build()
@@ -213,6 +213,10 @@ fn main() {
         let md = event_pump.mouse_state().is_mouse_button_pressed(sdl2::mouse::MouseButton::Left);
 
         if state.mouse_pressed_previous && !md { state.mouse_pressed_previous = false; }
+
+        let turn_text_val = format!("{} to play", if state.turn == ChessColour::White { "white" } else { "black" });
+        let turn_text = font.render(&turn_text_val);
+        let text_surface = turn_text.solid(Color::WHITE).unwrap();
 
         for y in 0..8_u8 {
             for x in 0..8_u8 {
