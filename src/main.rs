@@ -277,17 +277,6 @@ fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<(u8, 
     // we need to test if this move would cause the player to be in check
     // we do this by iterating over every piece the opponent has, and seeing if capturing the king is a possible move
     // if so, the move is invalid. sadly this process is fairly lengthy
-    let king_coord = board
-        .squares
-        .into_iter()
-        .find(|s| {
-            if let Some(p) = s.content {
-                p.kind == PieceKind::King && p.colour == board.turn
-            } else {
-                false
-            }
-        })
-        .unwrap();
 
     let nonchecking_moves = if test_for_checks {
         moves
@@ -296,19 +285,7 @@ fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<(u8, 
                 let mut test_board = board.clone();
                 test_board.make_move(coord, *possibly_checking_move);
 
-                for enemy_piece in test_board
-                    .squares
-                    .into_iter()
-                    .filter(|s| s.content.is_some())
-                    .map(|s| s.coords)
-                {
-                    let enemy_moves = get_moves(&test_board, enemy_piece, false);
-                    if enemy_moves.contains(&king_coord.coords) {
-                        return false;
-                    }
-                }
-
-                true
+                !test_board.is_in_check(piece.colour)
             })
             .collect()
     } else {
@@ -365,6 +342,33 @@ impl State {
             selected_square: None,
             mouse_pressed_previous: false,
         }
+    }
+
+    fn is_in_check(&self, col: ChessColour) -> bool {
+        let king_coord = self
+            .squares
+            .into_iter()
+            .find(|s| {
+                if let Some(p) = s.content {
+                    p.kind == PieceKind::King && p.colour == self.turn
+                } else {
+                    false
+                }
+            })
+            .unwrap();
+        for enemy_piece in self
+            .squares
+            .into_iter()
+            .filter(|s| s.content.is_some())
+            .map(|s| s.coords)
+        {
+            let enemy_moves = get_moves(&self, enemy_piece, false);
+            if enemy_moves.contains(&king_coord.coords) {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn make_move(&mut self, src: (u8, u8), dst: (u8, u8)) {
