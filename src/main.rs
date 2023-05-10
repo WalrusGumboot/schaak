@@ -1,4 +1,4 @@
-const SQUARE_W: u32 = 60;
+const SQUARE_W: u32 = 70;
 const BOARD_EDGE: i32 = 8 * SQUARE_W as i32;
 const MARGIN: i32 = 16; // obv only makes sense as unsigned, but this makes addition nicer
 const SCREEN_W: u32 = BOARD_EDGE as u32 + 300;
@@ -303,6 +303,7 @@ struct State {
     turn: ChessColour,
     selected_square: Option<(u8, u8)>,
     mouse_pressed_previous: bool,
+    game_running: bool,
 }
 
 impl State {
@@ -341,12 +342,12 @@ impl State {
             turn: ChessColour::White,
             selected_square: None,
             mouse_pressed_previous: false,
+            game_running: true,
         }
     }
 
-    fn is_in_check(&self, col: ChessColour) -> bool {
-        let king_coord = self
-            .squares
+    fn get_king_coord(&self, col: ChessColour) -> (u8, u8) {
+        self.squares
             .into_iter()
             .find(|s| {
                 if let Some(p) = s.content {
@@ -355,7 +356,12 @@ impl State {
                     false
                 }
             })
-            .unwrap();
+            .unwrap()
+            .coords
+    }
+
+    fn is_in_check(&self, col: ChessColour) -> bool {
+        let king_coord = self.get_king_coord(col);
         for enemy_piece in self
             .squares
             .into_iter()
@@ -363,7 +369,7 @@ impl State {
             .map(|s| s.coords)
         {
             let enemy_moves = get_moves(&self, enemy_piece, false);
-            if enemy_moves.contains(&king_coord.coords) {
+            if enemy_moves.contains(&king_coord) {
                 return true;
             }
         }
@@ -532,15 +538,21 @@ fn main() -> Result<(), String> {
                     mouse_over_coord = Some(square.coord())
                 };
 
-                if mouse_hit && !state.mouse_pressed_previous && md {
-                    if state.selected_square.is_none() {
-                        if square.content.is_some() && square.content.unwrap().colour == state.turn
-                        {
-                            state.selected_square = Some((x, y));
-                        }
-                    } else {
-                        if state.attempt_move((x, y)) {
-                            state.turn = state.turn.flip();
+                // we only want interaction when the game is running;
+                // this mouse check is the only place where input happens.
+
+                if state.game_running {
+                    if mouse_hit && !state.mouse_pressed_previous && md {
+                        if state.selected_square.is_none() {
+                            if square.content.is_some()
+                                && square.content.unwrap().colour == state.turn
+                            {
+                                state.selected_square = Some((x, y));
+                            }
+                        } else {
+                            if state.attempt_move((x, y)) {
+                                state.turn = state.turn.flip();
+                            }
                         }
                     }
                 }
@@ -645,21 +657,32 @@ fn main() -> Result<(), String> {
             )?;
         }
 
-        draw_text(
-            &format!(
-                "{} to play",
-                if state.turn == ChessColour::White {
-                    "white"
-                } else {
-                    "black"
-                }
-            ),
-            &mut canvas,
-            &texture_creator,
-            &font,
-            BOARD_EDGE + MARGIN,
-            MARGIN,
-        )?;
+        if state.game_running {
+            draw_text(
+                &format!(
+                    "{} to play",
+                    if state.turn == ChessColour::White {
+                        "white"
+                    } else {
+                        "black"
+                    }
+                ),
+                &mut canvas,
+                &texture_creator,
+                &font,
+                BOARD_EDGE + MARGIN,
+                MARGIN,
+            )?;
+        } else {
+            draw_text(
+                "checkmate!",
+                &mut canvas,
+                &texture_creator,
+                &font,
+                BOARD_EDGE + MARGIN,
+                MARGIN,
+            )?;
+        }
 
         if let Some(coord) = state.selected_square {
             canvas.set_draw_color(Color::RGBA(50, 200, 20, 50));
@@ -677,6 +700,14 @@ fn main() -> Result<(), String> {
                         ))?;
                     }
                 }
+            }
+        }
+
+        // quick checkmate test
+        for c in &[ChessColour::White, ChessColour::Black] {
+            if state.is_in_check(*c) && get_moves(&state, state.get_king_coord(*c), true).is_empty()
+            {
+                state.game_running = false;
             }
         }
 
