@@ -350,7 +350,7 @@ impl State {
             .into_iter()
             .find(|s| {
                 if let Some(p) = s.content {
-                    p.kind == PieceKind::King && p.colour == self.turn
+                    p.kind == PieceKind::King && p.colour == col
                 } else {
                     false
                 }
@@ -395,11 +395,7 @@ impl State {
                 let moves = get_moves(&self, source_coordinate, true);
 
                 if moves.contains(&target_coordinate) {
-                    self[target_coordinate].content = Some(Piece {
-                        has_moved: true,
-                        ..self[source_coordinate].content.unwrap()
-                    });
-                    self[source_coordinate].content = None;
+                    self.make_move(source_coordinate, target_coordinate);
                     return_value = true;
                 }
             }
