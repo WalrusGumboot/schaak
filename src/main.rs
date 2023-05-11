@@ -1,7 +1,7 @@
 const SQUARE_W: u32 = 70;
 const BOARD_EDGE: i32 = 8 * SQUARE_W as i32;
 const MARGIN: i32 = 16; // obv only makes sense as unsigned, but this makes addition nicer
-const SCREEN_W: u32 = BOARD_EDGE as u32 + 300;
+const SCREEN_W: u32 = BOARD_EDGE as u32 + 400;
 const SCREEN_H: u32 = BOARD_EDGE as u32;
 
 use sdl2::event::Event;
@@ -158,7 +158,18 @@ const QUEEN_OFFSETS: [(i8, i8); 8] = [
     (0, 1),
 ];
 
-fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<(u8, u8)> {
+struct ChessMove {
+    dst: (u8, u8),
+    function: Box<dyn FnOnce(&mut State)>,
+}
+
+impl PartialEq for ChessMove {
+    fn eq(&self, other: &Self) -> bool {
+        self.dst.eq(&other.dst)
+    }
+}
+
+fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<ChessMove> {
     use PieceKind::*;
     //determine piece type, and possible move offsets
     let piece = board[coord].content.unwrap();
@@ -278,7 +289,7 @@ fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<(u8, 
     // we do this by iterating over every piece the opponent has, and seeing if capturing the king is a possible move
     // if so, the move is invalid. sadly this process is fairly lengthy
 
-    let nonchecking_moves = if test_for_checks {
+    let nonchecking_moves: Vec<(u8, u8)> = if test_for_checks {
         moves
             .into_iter()
             .filter(|possibly_checking_move| {
@@ -292,9 +303,18 @@ fn get_moves(board: &State, coord: (u8, u8), test_for_checks: bool) -> Vec<(u8, 
         moves.into_iter().collect()
     };
 
-    // todo: en passant, castling
+    // all hitherto calculated moves have no extra "functionality"
+    // there are three main exceptions to this: en passant, castling and pawn promotion
 
-    nonchecking_moves
+    let normal_moves = nonchecking_moves
+        .into_iter()
+        .map(|s| ChessMove {
+            dst: s,
+            function: Box::new(|state: &mut State| println!("{}", state[s].coord())),
+        })
+        .collect();
+
+    normal_moves
 }
 
 #[derive(Clone, Copy)]
@@ -368,13 +388,30 @@ impl State {
             .filter(|s| s.content.is_some())
             .map(|s| s.coords)
         {
-            let enemy_moves = get_moves(&self, enemy_piece, false);
+            let enemy_moves = get_moves(&self, enemy_piece, false)
+                .into_iter()
+                .map(|m| m.dst)
+                .collect::<Vec<_>>();
             if enemy_moves.contains(&king_coord) {
                 return true;
             }
         }
 
         false
+    }
+
+    fn perform_castle(&mut self, long_castle: bool, col: ChessColour) {
+        let rook_coord: (u8, u8) = (
+            if long_castle { 0 } else { 7 },
+            if col == ChessColour::White { 0 } else { 7 },
+        );
+        let king_coord = self.get_king_coord(col);
+
+        let rook_target: (u8, u8) = (if long_castle { 3 } else { 5 }, rook_coord.1);
+        let king_target: (u8, u8) = (if long_castle { 2 } else { 6 }, king_coord.1);
+
+        self.make_move(rook_coord, rook_target);
+        self.make_move(king_coord, king_target);
     }
 
     fn make_move(&mut self, src: (u8, u8), dst: (u8, u8)) {
@@ -399,7 +436,7 @@ impl State {
                 && target_square.content.unwrap().colour == source_piece.colour)
             {
                 let moves = get_moves(&self, source_coordinate, true);
-
+                //TODO: rewrite
                 if moves.contains(&target_coordinate) {
                     self.make_move(source_coordinate, target_coordinate);
                     return_value = true;
