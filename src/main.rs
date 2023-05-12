@@ -1,4 +1,4 @@
-const SQUARE_W: u32 = 60;
+const SQUARE_W: u32 = 90;
 const BOARD_EDGE: i32 = 8 * SQUARE_W as i32;
 const MARGIN: i32 = 16; // obv only makes sense as unsigned, but this makes addition nicer
 const SCREEN_W: u32 = BOARD_EDGE as u32 + 400;
@@ -11,7 +11,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::ttf::{self, Font};
-use sdl2::video::{Window, WindowContext};
+use sdl2::video::{Window, WindowContext, GLProfile};
 use std::time::Duration;
 
 mod piece;
@@ -51,6 +51,10 @@ fn main() -> Result<(), String> {
     let _image_context = image::init(InitFlag::PNG).unwrap(); // has to be let-binding to ensure drop at the end of the program
     let font_context = ttf::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
+    let gl_attr = video_subsystem.gl_attr();
+    gl_attr.set_context_profile(GLProfile::Core);
+    gl_attr.set_multisample_buffers(1);
+    gl_attr.set_multisample_samples(4);
 
     let font = font_context
         .load_font("assets/fonts/input.ttf", 16)
@@ -58,6 +62,7 @@ fn main() -> Result<(), String> {
 
     let window = video_subsystem
         .window("schaak", SCREEN_W, SCREEN_H)
+        .opengl()
         .build()
         .unwrap();
 
@@ -303,12 +308,32 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // quick checkmate test
+        // checkmate test
         for c in &[ChessColour::White, ChessColour::Black] {
             if state.is_in_check(*c) && state.get_moves(state.get_king_coord(*c), true).is_empty() {
                 state.game_running = false;
             }
         }
+
+        draw_text(
+            &format!(
+                "history: {}",
+                state
+                    .history
+                    .clone()
+                    .into_iter()
+                    .map(|m| format!("{} ", m))
+                    .fold(String::new(), |mut acc, new| {
+                        acc.push_str(&new);
+                        acc
+                    })
+            ),
+            &mut canvas,
+            &texture_creator,
+            &font,
+            BOARD_EDGE + MARGIN,
+            5 * MARGIN,
+        )?;
 
         for event in event_pump.poll_iter() {
             match event {

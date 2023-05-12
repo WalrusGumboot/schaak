@@ -286,18 +286,27 @@ impl State {
 
         // all hitherto calculated moves have no extra "functionality"
         // there are three main exceptions to this: en passant, castling and pawn promotion
+        
+        let mut moves_with_fn = Vec::new();
 
-        let normal_moves = nonchecking_moves
-            .iter()
-            .map(|s| ChessMove {
-                dst: *s,
-                function: Box::new(|state: &mut State| {
-                    state.history.push(PerformedMove::new(coord, *s));
-                }),
-            })
-            .collect();
+        let boxed_coord = Box::new(coord);
+        let static_coord: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_coord);
 
-        normal_moves
+        for m in nonchecking_moves {
+            let boxed_move = Box::new(m);
+            let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move);
+
+            moves_with_fn.push(
+                ChessMove {
+                    dst: m,
+                    function: Box::new(|state: &mut State| {
+                        state.history.push(PerformedMove::new(*static_coord, *static_move));
+                    })
+                }
+            );
+        }
+
+        moves_with_fn
     }
 }
 

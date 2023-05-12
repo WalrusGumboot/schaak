@@ -68,6 +68,14 @@ pub struct PerformedMove {
     dst: (u8, u8),
 }
 
+use std::fmt;
+
+impl fmt::Display for PerformedMove {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}{}", (self.src.0 + 97) as char, (self.src.1 + 49) as char, (self.dst.0 + 97) as char, (self.dst.1 + 49) as char)
+    }
+}
+
 impl PerformedMove {
     pub fn new(src: (u8, u8), dst: (u8, u8)) -> Self {
         PerformedMove { src, dst }
