@@ -93,7 +93,8 @@ impl State {
         false
     }
 
-    fn perform_castle(&mut self, long_castle: bool, col: ChessColour) {
+    // assumes the necessary checks have been performed
+    pub fn perform_castle(&mut self, long_castle: bool, col: ChessColour) {
         let rook_coord: (u8, u8) = (
             if long_castle { 0 } else { 7 },
             if col == ChessColour::White { 0 } else { 7 },
@@ -304,6 +305,35 @@ impl State {
                     })
                 }
             );
+        }
+
+        // potentially adding in castling
+
+        let king_coord = self.get_king_coord(piece.colour);
+        if coord == king_coord && !self[king_coord].content.unwrap().has_moved{
+            // long castle
+            if let Some(piece_on_a_file) = self[(0, king_coord.1)].content {
+                if piece_on_a_file.kind == Rook && !piece_on_a_file.has_moved &&
+                self[(1, king_coord.1)].content.is_none()  &&
+                self[(2, king_coord.1)].content.is_none()  &&
+                self[(3, king_coord.1)].content.is_none()  {
+                    let target_move = (king_coord.0 - 2, king_coord.1);
+
+                    let boxed_move = Box::new(target_move);
+                    let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move);
+
+                    if piece.colour == ChessColour::White {
+                        moves_with_fn.push(
+                            ChessMove { dst: target_move, function: Box::new(|state: &mut State| {
+                                state.history.push(PerformedMove::new(*static_coord, *static_move));
+                                state.perform_castle(true, ChessColour::White);
+                            }) }
+                        );
+                    }
+
+                    
+                }
+            }
         }
 
         moves_with_fn

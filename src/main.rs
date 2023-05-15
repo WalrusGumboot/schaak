@@ -1,4 +1,4 @@
-const SQUARE_W: u32 = 90;
+const SQUARE_W: u32 = 55;
 const BOARD_EDGE: i32 = 8 * SQUARE_W as i32;
 const MARGIN: i32 = 16; // obv only makes sense as unsigned, but this makes addition nicer
 const SCREEN_W: u32 = BOARD_EDGE as u32 + 400;
@@ -342,6 +342,7 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown { keycode: Some(Keycode::E), ..} => { state.perform_castle(true, ChessColour::White); }
                 _ => {}
             }
         }
