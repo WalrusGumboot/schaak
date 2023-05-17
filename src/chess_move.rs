@@ -38,7 +38,8 @@ pub const QUEEN_OFFSETS: [(i8, i8); 8] = [
 
 pub struct ChessMove {
     pub dst: (u8, u8),
-    pub function: Box<dyn FnMut(&mut State)>,
+    /// returned boolean stands for if pieces were moved during the function execution
+    pub function: Box<dyn FnMut(&mut State) -> bool>,
 }
 
 impl PartialEq for ChessMove {
@@ -57,7 +58,7 @@ impl ChessMove {
     pub fn dummy(dst: (u8, u8)) -> Self {
         ChessMove {
             dst,
-            function: Box::new(|_| {}),
+            function: Box::new(|_| false),
         }
     }
 }
@@ -72,7 +73,14 @@ use std::fmt;
 
 impl fmt::Display for PerformedMove {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}{}", (self.src.0 + 97) as char, (self.src.1 + 49) as char, (self.dst.0 + 97) as char, (self.dst.1 + 49) as char)
+        write!(
+            f,
+            "{}{}{}{}",
+            (self.src.0 + 97) as char,
+            (self.src.1 + 49) as char,
+            (self.dst.0 + 97) as char,
+            (self.dst.1 + 49) as char
+        )
     }
 }
 

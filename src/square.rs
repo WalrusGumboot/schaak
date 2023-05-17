@@ -2,7 +2,7 @@ use crate::Piece;
 
 use sdl2::pixels::Color;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Square {
     pub coords: (u8, u8), // (0, 0) is a1; (7, 0) is h1; (0, 7) is a8; (7, 7) is h8
     pub content: Option<Piece>,

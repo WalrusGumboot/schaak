@@ -68,7 +68,7 @@ impl State {
                     false
                 }
             })
-            .unwrap()
+            .expect(&format!("{:?}", self.squares))
             .coords
     }
 
@@ -109,13 +109,16 @@ impl State {
     }
 
     fn make_move(&mut self, src: (u8, u8), mut chess_move: ChessMove) {
-        let dst = chess_move.dst;
-        self[dst].content = Some(Piece {
-            has_moved: true,
-            ..self[src].content.unwrap()
-        });
-        self[src].content = None;
-        (chess_move.function)(self);
+        if !(chess_move.function)(self) {
+            // if executing the move's function didn't already handle piece movement for us,
+            // it has to be done "manually" like this:
+            let dst = chess_move.dst;
+            self[dst].content = Some(Piece {
+                has_moved: true,
+                ..self[src].content.unwrap()
+            });
+            self[src].content = None;
+        };
     }
 
     // returns whether or not the move was correctly carried out
@@ -287,7 +290,7 @@ impl State {
 
         // all hitherto calculated moves have no extra "functionality"
         // there are three main exceptions to this: en passant, castling and pawn promotion
-        
+
         let mut moves_with_fn = Vec::new();
 
         let boxed_coord = Box::new(coord);
@@ -297,45 +300,100 @@ impl State {
             let boxed_move = Box::new(m);
             let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move);
 
-            moves_with_fn.push(
-                ChessMove {
-                    dst: m,
-                    function: Box::new(|state: &mut State| {
-                        state.history.push(PerformedMove::new(*static_coord, *static_move));
-                    })
-                }
-            );
+            moves_with_fn.push(ChessMove {
+                dst: m,
+                function: Box::new(|state: &mut State| {
+                    state
+                        .history
+                        .push(PerformedMove::new(*static_coord, *static_move));
+
+                    false
+                }),
+            });
         }
 
         // potentially adding in castling
 
         let king_coord = self.get_king_coord(piece.colour);
-        if coord == king_coord && !self[king_coord].content.unwrap().has_moved{
+        if coord == king_coord && !self[king_coord].content.unwrap().has_moved {
             // long castle
             if let Some(piece_on_a_file) = self[(0, king_coord.1)].content {
-                if piece_on_a_file.kind == Rook && !piece_on_a_file.has_moved &&
-                self[(1, king_coord.1)].content.is_none()  &&
-                self[(2, king_coord.1)].content.is_none()  &&
-                self[(3, king_coord.1)].content.is_none()  {
+                if piece_on_a_file.kind == Rook
+                    && !piece_on_a_file.has_moved
+                    && self[(1, king_coord.1)].content.is_none()
+                    && self[(2, king_coord.1)].content.is_none()
+                    && self[(3, king_coord.1)].content.is_none()
+                {
                     let target_move = (king_coord.0 - 2, king_coord.1);
 
                     let boxed_move = Box::new(target_move);
-                    let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move);
+                    let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move); //TODO: optimise multiple leak calls away
 
                     if piece.colour == ChessColour::White {
-                        moves_with_fn.push(
-                            ChessMove { dst: target_move, function: Box::new(|state: &mut State| {
-                                state.history.push(PerformedMove::new(*static_coord, *static_move));
+                        moves_with_fn.push(ChessMove {
+                            dst: target_move,
+                            function: Box::new(|state: &mut State| {
+                                state
+                                    .history
+                                    .push(PerformedMove::new(*static_coord, *static_move));
                                 state.perform_castle(true, ChessColour::White);
-                            }) }
-                        );
+                                true
+                            }),
+                        });
+                    } else {
+                        moves_with_fn.push(ChessMove {
+                            dst: target_move,
+                            function: Box::new(|state: &mut State| {
+                                state
+                                    .history
+                                    .push(PerformedMove::new(*static_coord, *static_move));
+                                state.perform_castle(true, ChessColour::Black);
+                                true
+                            }),
+                        });
                     }
+                }
+            }
 
-                    
+            if let Some(piece_on_h_file) = self[(7, king_coord.1)].content {
+                if piece_on_h_file.kind == Rook
+                    && !piece_on_h_file.has_moved
+                    && self[(5, king_coord.1)].content.is_none()
+                    && self[(6, king_coord.1)].content.is_none()
+                {
+                    let target_move = (king_coord.0 + 2, king_coord.1);
+
+                    let boxed_move = Box::new(target_move);
+                    let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move); //TODO: optimise multiple leak calls away
+
+                    if piece.colour == ChessColour::White {
+                        moves_with_fn.push(ChessMove {
+                            dst: target_move,
+                            function: Box::new(|state: &mut State| {
+                                state
+                                    .history
+                                    .push(PerformedMove::new(*static_coord, *static_move));
+                                state.perform_castle(false, ChessColour::White);
+                                true
+                            }),
+                        });
+                    } else {
+                        moves_with_fn.push(ChessMove {
+                            dst: target_move,
+                            function: Box::new(|state: &mut State| {
+                                state
+                                    .history
+                                    .push(PerformedMove::new(*static_coord, *static_move));
+                                state.perform_castle(false, ChessColour::Black);
+                                true
+                            }),
+                        });
+                    }
                 }
             }
         }
 
+        // pawn promotion
         moves_with_fn
     }
 }
