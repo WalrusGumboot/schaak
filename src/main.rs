@@ -342,7 +342,6 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
-                Event::KeyDown { keycode: Some(Keycode::E), ..} => { state.perform_castle(true, ChessColour::White); }
                 _ => {}
             }
         }

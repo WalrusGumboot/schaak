@@ -201,10 +201,26 @@ impl State {
         } else {
             let offsets_raw: &[(i8, i8)] = match piece.kind {
                 Pawn => {
-                    if piece.has_moved {
-                        &PAWN_MOVES_RAW_MOVED
+                    if piece.colour == ChessColour::White {
+                        if coord.1 == 6 {
+                            &[] 
+                        } else {
+                            if piece.has_moved {
+                                &[(0, 1)]
+                            } else {
+                                &[(0, 1), (0, 2)]
+                            }
+                        }
                     } else {
-                        &PAWN_MOVES_RAW_UNMOVED
+                        if coord.1 == 1 {
+                            &[] 
+                        } else {
+                            if piece.has_moved {
+                                &[(0, -1)]
+                            } else {
+                                &[(0, -1), (0, -2)]
+                            }
+                        }
                     }
                 }
                 Knight => &KNIGHT_MOVES_RAW,
@@ -214,13 +230,6 @@ impl State {
 
             moves = offsets_raw
                 .into_iter()
-                .map(|m| {
-                    if piece.colour == ChessColour::White {
-                        *m
-                    } else {
-                        (-m.0, -m.1)
-                    }
-                }) // black moves are flipped (only matters for pawns)
                 .map(|m| (coord.0 as i8 + m.0, coord.1 as i8 + m.1))
                 .filter(|m| (0..8).contains(&m.0) && (0..8).contains(&m.1))
                 .map(|m| (m.0 as u8, m.1 as u8))
@@ -278,6 +287,10 @@ impl State {
             moves
                 .into_iter()
                 .filter(|possibly_checking_move| {
+                    // if piece.kind == Pawn && (possibly_checking_move.1 == 0 || possibly_checking_move.1 == 7) {
+                    //     return true;
+                    // }
+
                     let mut test_board = self.clone();
                     test_board.make_move(coord, ChessMove::dummy(*possibly_checking_move));
 
@@ -393,7 +406,6 @@ impl State {
             }
         }
 
-        // pawn promotion
         moves_with_fn
     }
 }

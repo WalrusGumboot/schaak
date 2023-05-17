@@ -1,7 +1,5 @@
 use crate::State;
 
-pub const PAWN_MOVES_RAW_UNMOVED: [(i8, i8); 2] = [(0, 1), (0, 2)];
-pub const PAWN_MOVES_RAW_MOVED: [(i8, i8); 1] = [(0, 1)];
 pub const KNIGHT_MOVES_RAW: [(i8, i8); 8] = [
     (1, 2),
     (-1, 2),
