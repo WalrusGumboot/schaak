@@ -25,6 +25,9 @@ use state::*;
 
 mod square;
 
+mod player;
+use player::*;
+
 fn draw_text(
     text: &str,
     c: &mut Canvas<Window>,
