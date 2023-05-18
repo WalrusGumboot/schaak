@@ -11,11 +11,11 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::ttf::{self, Font};
-use sdl2::video::{Window, WindowContext, GLProfile};
+use sdl2::video::{Window, WindowContext};
 use std::time::Duration;
 
 mod piece;
-use piece::*;
+use piece::{PieceKind::*, *};
 
 mod chess_move;
 use chess_move::*;
@@ -51,11 +51,6 @@ fn main() -> Result<(), String> {
     let _image_context = image::init(InitFlag::PNG).unwrap(); // has to be let-binding to ensure drop at the end of the program
     let font_context = ttf::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
-    let gl_attr = video_subsystem.gl_attr();
-    gl_attr.set_context_profile(GLProfile::Core);
-    gl_attr.set_multisample_buffers(1);
-    gl_attr.set_multisample_samples(4);
-
     let font = font_context
         .load_font("assets/fonts/input.ttf", 16)
         .unwrap();
@@ -157,6 +152,18 @@ fn main() -> Result<(), String> {
                         } else {
                             if state.attempt_move((x, y)) {
                                 state.turn = state.turn.flip();
+                                // every piece that is of the colour whose turn it currently is can now be "de-en passanted"; it is no longer the current turn
+                                let aux_squares = state.squares.clone();
+                                for (idx, s) in aux_squares.into_iter().enumerate() {
+                                    if let Some(p) = s.content {
+                                        if p.colour == state.turn {
+                                            state.squares[idx].content = Some(Piece {
+                                                en_passanteable: false,
+                                                ..p
+                                            });
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -170,6 +177,10 @@ fn main() -> Result<(), String> {
                 );
 
                 canvas.set_draw_color(square.colour(mouse_hit));
+                if state[(x, y)].content.is_some() && state[(x, y)].content.unwrap().en_passanteable
+                {
+                    canvas.set_draw_color(Color::RGB(140, 100, 250));
+                }
                 if state.selected_square.is_some() && state.selected_square.unwrap() == (x, y) {
                     canvas.set_draw_color(Color::RGB(240, 200, 210));
                 }
@@ -310,29 +321,65 @@ fn main() -> Result<(), String> {
 
         // checkmate test
         for c in &[ChessColour::White, ChessColour::Black] {
-            if state.is_in_check(*c) && state.get_moves(state.get_king_coord(*c), true).is_empty() {
-                state.game_running = false;
+            if state.is_in_check(*c) {
+                // test every piece's every move and check if the king is still in check
+                let no_unchecking_moves = state
+                    .squares
+                    .into_iter()
+                    .filter(|s| {
+                        if let Some(p) = s.content {
+                            p.colour == *c
+                        } else {
+                            false
+                        }
+                    })
+                    .map(|s| (s.coords, state.get_moves(s.coords, true)))
+                    .map(|(square, moves)| {
+                        // we will test if making the move still leaves the king in check
+                        moves.into_iter().all(|m| {
+                            let mut test_board = state.clone();
+                            test_board.make_move(square, m);
+
+                            test_board.is_in_check(*c)
+                        })
+                    })
+                    .all(|b| b);
+
+                if no_unchecking_moves {
+                    state.game_running = false;
+                }
             }
         }
 
         draw_text(
             &format!(
-                "history: {}",
-                state
-                    .history
-                    .clone()
-                    .into_iter()
-                    .map(|m| format!("{} ", m))
-                    .fold(String::new(), |mut acc, new| {
-                        acc.push_str(&new);
-                        acc
-                    })
+                "promotion: {} {} {} {}",
+                if state.next_promotor == Queen {
+                    "[Q]"
+                } else {
+                    " Q "
+                },
+                if state.next_promotor == Rook {
+                    "[R]"
+                } else {
+                    " R "
+                },
+                if state.next_promotor == Bishop {
+                    "[B]"
+                } else {
+                    " B "
+                },
+                if state.next_promotor == Knight {
+                    "[N]"
+                } else {
+                    " N "
+                },
             ),
             &mut canvas,
             &texture_creator,
             &font,
             BOARD_EDGE + MARGIN,
-            5 * MARGIN,
+            3 * MARGIN,
         )?;
 
         for event in event_pump.poll_iter() {
@@ -342,6 +389,31 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(Keycode::Q),
+                    ..
+                } => {
+                    state.next_promotor = Queen;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::R),
+                    ..
+                } => {
+                    state.next_promotor = Rook;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::B),
+                    ..
+                } => {
+                    state.next_promotor = Bishop;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::N),
+                    ..
+                } => {
+                    state.next_promotor = Knight;
+                }
+
                 _ => {}
             }
         }

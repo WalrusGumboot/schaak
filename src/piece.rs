@@ -37,6 +37,7 @@ pub struct Piece {
     pub kind: PieceKind,
     pub colour: ChessColour,
     pub has_moved: bool,
+    pub en_passanteable: bool,
 }
 
 impl Piece {
@@ -61,6 +62,7 @@ impl Piece {
                 kind: k,
                 colour,
                 has_moved: false,
+                en_passanteable: false,
             }),
             None => None,
         }

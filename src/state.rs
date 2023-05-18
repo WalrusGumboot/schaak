@@ -15,6 +15,7 @@ pub struct State {
     pub mouse_pressed_previous: bool,
     pub game_running: bool,
     pub history: Vec<PerformedMove>,
+    pub next_promotor: PieceKind,
 }
 
 impl State {
@@ -55,6 +56,7 @@ impl State {
             mouse_pressed_previous: false,
             game_running: true,
             history: Vec::new(),
+            next_promotor: Queen,
         }
     }
 
@@ -108,7 +110,7 @@ impl State {
         self.make_move(king_coord, ChessMove::dummy(king_target));
     }
 
-    fn make_move(&mut self, src: (u8, u8), mut chess_move: ChessMove) {
+    pub fn make_move(&mut self, src: (u8, u8), mut chess_move: ChessMove) {
         if !(chess_move.function)(self) {
             // if executing the move's function didn't already handle piece movement for us,
             // it has to be done "manually" like this:
@@ -152,11 +154,38 @@ impl State {
         return_value
     }
 
+    // assumes the move's availability checks have been performed properly
+    pub fn promote_pawn(&mut self, src: (u8, u8), dst: (u8, u8)) {
+        match self.next_promotor {
+            Pawn | King => unreachable!(),
+            _ => {
+                self[dst].content = Some(Piece {
+                    kind: self.next_promotor,
+                    colour: self[src].content.unwrap().colour,
+                    has_moved: true,
+                    en_passanteable: false,
+                });
+                self[src].content = None;
+            }
+        }
+    }
+
+    pub fn en_passant(&mut self, src: (u8, u8), dst: (u8, u8)) {
+        self[dst].content = self[src].content;
+        self[(dst.0, src.1)].content = None;
+        self[src].content = None;
+    }
+
     pub fn get_moves(&self, coord: (u8, u8), test_for_checks: bool) -> Vec<ChessMove> {
         //determine piece type, and possible move offsets
         let piece = self[coord].content.unwrap();
 
         let mut moves: HashSet<(u8, u8)> = HashSet::new();
+
+        // for moves whose function we already know during move calculation
+        let mut moves_with_fn = Vec::new();
+        let boxed_coord = Box::new(coord);
+        let static_coord: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_coord);
 
         if piece.kind.is_sliding() {
             let offsets: &[(i8, i8)] = match piece.kind {
@@ -203,7 +232,7 @@ impl State {
                 Pawn => {
                     if piece.colour == ChessColour::White {
                         if coord.1 == 6 {
-                            &[] 
+                            &[]
                         } else {
                             if piece.has_moved {
                                 &[(0, 1)]
@@ -213,7 +242,7 @@ impl State {
                         }
                     } else {
                         if coord.1 == 1 {
-                            &[] 
+                            &[]
                         } else {
                             if piece.has_moved {
                                 &[(0, -1)]
@@ -250,30 +279,77 @@ impl State {
 
                 let up_coord = (coord.0, (coord.1 as i8 + up_dir) as u8);
 
-                if self[up_coord].content.is_some() {
-                    moves.remove(&up_coord);
-                }
-
-                // only check for leftwards pawn captures if the pawn is not on the a file
-                if coord.0 >= 1 {
-                    // following line does not cause board overflow because a pawn on 1st or 8th rank promotes
-                    let target_coord = (coord.0 - 1, (coord.1 as i8 + up_dir) as u8);
-                    let left_capture = self[target_coord].content;
-                    if left_capture.is_some() && left_capture.unwrap().colour == piece.colour.flip()
-                    {
-                        moves.insert(target_coord);
+                if (0..8).contains(&up_coord.1) {
+                    if self[up_coord].content.is_some() {
+                        moves.remove(&up_coord);
                     }
-                }
 
-                // only check for rightwards pawn captures if the pawn is not on the h file
-                if coord.0 <= 6 {
-                    // following line does not cause board overflow because a pawn on 1st or 8th rank promotes
-                    let target_coord = (coord.0 + 1, (coord.1 as i8 + up_dir) as u8);
-                    let right_capture = self[target_coord].content;
-                    if right_capture.is_some()
-                        && right_capture.unwrap().colour == piece.colour.flip()
-                    {
-                        moves.insert(target_coord);
+                    // only check for leftwards pawn captures if the pawn is not on the a file
+                    if coord.0 >= 1 {
+                        // following line does not cause board overflow because a pawn on 1st or 8th rank promotes
+                        let target_coord = (coord.0 - 1, (coord.1 as i8 + up_dir) as u8);
+                        let left_capture = self[target_coord].content;
+                        if left_capture.is_some()
+                            && left_capture.unwrap().colour == piece.colour.flip()
+                        {
+                            moves.insert(target_coord);
+                        }
+
+                        // also, leftward en passant captures!
+                        if let Some(en_passant_pawn) = self[(coord.0 - 1, coord.1)].content {
+                            if en_passant_pawn.en_passanteable {
+                                let dst = (coord.0 - 1, (coord.1 as i8 + up_dir) as u8);
+
+                                let boxed_dst = Box::new(dst);
+                                let static_dst: &'static (u8, u8) =
+                                    Box::<(u8, u8)>::leak(boxed_dst);
+
+                                moves_with_fn.push(ChessMove {
+                                    dst,
+                                    function: Box::new(|state: &mut State| {
+                                        state
+                                            .history
+                                            .push(PerformedMove::new(*static_coord, *static_dst));
+                                        state.en_passant(*static_coord, *static_dst);
+                                        true
+                                    }),
+                                })
+                            }
+                        }
+                    }
+
+                    // only check for rightwards pawn captures if the pawn is not on the h file
+                    if coord.0 <= 6 {
+                        // following line does not cause board overflow because a pawn on 1st or 8th rank promotes
+                        let target_coord = (coord.0 + 1, (coord.1 as i8 + up_dir) as u8);
+                        let right_capture = self[target_coord].content;
+                        if right_capture.is_some()
+                            && right_capture.unwrap().colour == piece.colour.flip()
+                        {
+                            moves.insert(target_coord);
+                        }
+
+                        // also, rightward en passant captures!
+                        if let Some(en_passant_pawn) = self[(coord.0 + 1, coord.1)].content {
+                            if en_passant_pawn.en_passanteable {
+                                let dst = (coord.0 + 1, (coord.1 as i8 + up_dir) as u8);
+
+                                let boxed_dst = Box::new(dst);
+                                let static_dst: &'static (u8, u8) =
+                                    Box::<(u8, u8)>::leak(boxed_dst);
+
+                                moves_with_fn.push(ChessMove {
+                                    dst,
+                                    function: Box::new(|state: &mut State| {
+                                        state
+                                            .history
+                                            .push(PerformedMove::new(*static_coord, *static_dst));
+                                        state.en_passant(*static_coord, *static_dst);
+                                        true
+                                    }),
+                                })
+                            }
+                        }
                     }
                 }
             }
@@ -304,25 +380,56 @@ impl State {
         // all hitherto calculated moves have no extra "functionality"
         // there are three main exceptions to this: en passant, castling and pawn promotion
 
-        let mut moves_with_fn = Vec::new();
-
-        let boxed_coord = Box::new(coord);
-        let static_coord: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_coord);
-
         for m in nonchecking_moves {
             let boxed_move = Box::new(m);
             let static_move: &'static (u8, u8) = Box::<(u8, u8)>::leak(boxed_move);
 
-            moves_with_fn.push(ChessMove {
-                dst: m,
-                function: Box::new(|state: &mut State| {
-                    state
-                        .history
-                        .push(PerformedMove::new(*static_coord, *static_move));
+            if piece.kind == Pawn && m.1 == 0 || m.1 == 7 {
+                moves_with_fn.push(ChessMove {
+                    dst: m,
+                    function: Box::new(|state: &mut State| {
+                        state
+                            .history
+                            .push(PerformedMove::new(*static_coord, *static_move));
+                        state.promote_pawn(*static_coord, *static_move);
+                        true
+                    }),
+                })
+            } else if piece.kind == Pawn
+                && (m.1 as i8 - coord.1 as i8).abs() == 2
+                && !piece.has_moved
+            {
+                // double pawn move
+                let boxed_col = Box::new(piece.colour);
+                let static_col: &'static ChessColour = Box::<ChessColour>::leak(boxed_col);
 
-                    false
-                }),
-            });
+                moves_with_fn.push(ChessMove {
+                    dst: m,
+                    function: Box::new(|state: &mut State| {
+                        state
+                            .history
+                            .push(PerformedMove::new(*static_coord, *static_move));
+                        state[*static_coord].content = Some(Piece {
+                            en_passanteable: true,
+                            has_moved: true,
+                            colour: *static_col,
+                            kind: Pawn,
+                        }); // we set the en_passanteable field, then pass movement on
+                        false
+                    }),
+                })
+            } else {
+                moves_with_fn.push(ChessMove {
+                    dst: m,
+                    function: Box::new(|state: &mut State| {
+                        state
+                            .history
+                            .push(PerformedMove::new(*static_coord, *static_move));
+
+                        false
+                    }),
+                });
+            }
         }
 
         // potentially adding in castling
