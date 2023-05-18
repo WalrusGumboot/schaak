@@ -275,9 +275,16 @@ impl State {
                     -1
                 };
 
-                // cannot move forwards
-
                 let up_coord = (coord.0, (coord.1 as i8 + up_dir) as u8);
+                let double_up_coord = (coord.0, (coord.1 as i8 + 2 * up_dir) as u8);
+
+                // manually remove double forward capture when
+                // pawn has not yet moved
+                if !piece.has_moved && self[double_up_coord].content.is_some() {
+                    moves.remove(&double_up_coord);
+                }
+
+                // cannot move forwards
 
                 if (0..8).contains(&up_coord.1) {
                     if self[up_coord].content.is_some() {
