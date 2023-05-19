@@ -12,6 +12,8 @@ use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::ttf::{self, Font};
 use sdl2::video::{Window, WindowContext};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 mod piece;
@@ -108,6 +110,22 @@ fn main() -> Result<(), String> {
     canvas.clear();
     canvas.present();
     let mut event_pump = sdl_context.event_pump().unwrap();
+
+    // players and their comms
+
+    let (white_player_tx, white_player_rx) = mpsc::channel();
+    let (black_player_tx, black_player_rx) = mpsc::channel();
+
+    let (mut white_player, rx_from_white_player) = HumanPlayer::new(&state, white_player_rx);
+    let (mut black_player, rx_from_black_player) = HumanPlayer::new(&state, black_player_rx);
+
+    thread::spawn(move || loop {
+        white_player.tick()
+    });
+
+    thread::spawn(move || loop {
+        black_player.tick()
+    });
 
     'running: loop {
         // clear the screen
@@ -420,7 +438,26 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
-        // The rest of the game loop goes here...
+
+        // check if any of the players have a new move to make
+
+        if let Ok(white_move) = rx_from_white_player.try_recv() {
+            if state.turn == ChessColour::White {
+                state.make_move(white_move.coord, white_move.clone().move_data);
+
+                white_player_tx.send(white_move.clone()).unwrap();
+                black_player_tx.send(white_move.clone()).unwrap();
+            }
+        }
+
+        if let Ok(black_move) = rx_from_black_player.try_recv() {
+            if state.turn == ChessColour::Black {
+                state.make_move(black_move.coord, black_move.clone().move_data);
+
+                white_player_tx.send(black_move.clone()).unwrap();
+                black_player_tx.send(black_move.clone()).unwrap();
+            }
+        }
 
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));

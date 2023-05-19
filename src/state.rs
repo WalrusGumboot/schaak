@@ -6,6 +6,7 @@ use crate::{
 
 use std::collections::HashSet;
 use std::ops::{Index, IndexMut};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct State {
@@ -110,8 +111,12 @@ impl State {
         self.make_move(king_coord, ChessMove::dummy(king_target));
     }
 
-    pub fn make_move(&mut self, src: (u8, u8), mut chess_move: ChessMove) {
-        if !(chess_move.function)(self) {
+    pub fn make_move(&mut self, src: (u8, u8), chess_move: ChessMove) {
+        let mut function = chess_move
+            .function
+            .lock()
+            .expect("Could not acquire mutex lock on move function");
+        if !(function)(self) {
             // if executing the move's function didn't already handle piece movement for us,
             // it has to be done "manually" like this:
             let dst = chess_move.dst;
@@ -121,6 +126,9 @@ impl State {
             });
             self[src].content = None;
         };
+
+        // explicit drop call
+        drop(function);
     }
 
     // returns whether or not the move was correctly carried out
@@ -313,13 +321,13 @@ impl State {
 
                                 moves_with_fn.push(ChessMove {
                                     dst,
-                                    function: Box::new(|state: &mut State| {
+                                    function: Arc::new(Mutex::new(|state: &mut State| {
                                         state
                                             .history
                                             .push(PerformedMove::new(*static_coord, *static_dst));
                                         state.en_passant(*static_coord, *static_dst);
                                         true
-                                    }),
+                                    })),
                                 })
                             }
                         }
@@ -347,13 +355,13 @@ impl State {
 
                                 moves_with_fn.push(ChessMove {
                                     dst,
-                                    function: Box::new(|state: &mut State| {
+                                    function: Arc::new(Mutex::new(|state: &mut State| {
                                         state
                                             .history
                                             .push(PerformedMove::new(*static_coord, *static_dst));
                                         state.en_passant(*static_coord, *static_dst);
                                         true
-                                    }),
+                                    })),
                                 })
                             }
                         }
@@ -394,13 +402,13 @@ impl State {
             if piece.kind == Pawn && m.1 == 0 || m.1 == 7 {
                 moves_with_fn.push(ChessMove {
                     dst: m,
-                    function: Box::new(|state: &mut State| {
+                    function: Arc::new(Mutex::new(|state: &mut State| {
                         state
                             .history
                             .push(PerformedMove::new(*static_coord, *static_move));
                         state.promote_pawn(*static_coord, *static_move);
                         true
-                    }),
+                    })),
                 })
             } else if piece.kind == Pawn
                 && (m.1 as i8 - coord.1 as i8).abs() == 2
@@ -412,7 +420,7 @@ impl State {
 
                 moves_with_fn.push(ChessMove {
                     dst: m,
-                    function: Box::new(|state: &mut State| {
+                    function: Arc::new(Mutex::new(|state: &mut State| {
                         state
                             .history
                             .push(PerformedMove::new(*static_coord, *static_move));
@@ -423,18 +431,18 @@ impl State {
                             kind: Pawn,
                         }); // we set the en_passanteable field, then pass movement on
                         false
-                    }),
+                    })),
                 })
             } else {
                 moves_with_fn.push(ChessMove {
                     dst: m,
-                    function: Box::new(|state: &mut State| {
+                    function: Arc::new(Mutex::new(|state: &mut State| {
                         state
                             .history
                             .push(PerformedMove::new(*static_coord, *static_move));
 
                         false
-                    }),
+                    })),
                 });
             }
         }
@@ -459,24 +467,24 @@ impl State {
                     if piece.colour == ChessColour::White {
                         moves_with_fn.push(ChessMove {
                             dst: target_move,
-                            function: Box::new(|state: &mut State| {
+                            function: Arc::new(Mutex::new(|state: &mut State| {
                                 state
                                     .history
                                     .push(PerformedMove::new(*static_coord, *static_move));
                                 state.perform_castle(true, ChessColour::White);
                                 true
-                            }),
+                            })),
                         });
                     } else {
                         moves_with_fn.push(ChessMove {
                             dst: target_move,
-                            function: Box::new(|state: &mut State| {
+                            function: Arc::new(Mutex::new(|state: &mut State| {
                                 state
                                     .history
                                     .push(PerformedMove::new(*static_coord, *static_move));
                                 state.perform_castle(true, ChessColour::Black);
                                 true
-                            }),
+                            })),
                         });
                     }
                 }
@@ -496,24 +504,24 @@ impl State {
                     if piece.colour == ChessColour::White {
                         moves_with_fn.push(ChessMove {
                             dst: target_move,
-                            function: Box::new(|state: &mut State| {
+                            function: Arc::new(Mutex::new(|state: &mut State| {
                                 state
                                     .history
                                     .push(PerformedMove::new(*static_coord, *static_move));
                                 state.perform_castle(false, ChessColour::White);
                                 true
-                            }),
+                            })),
                         });
                     } else {
                         moves_with_fn.push(ChessMove {
                             dst: target_move,
-                            function: Box::new(|state: &mut State| {
+                            function: Arc::new(Mutex::new(|state: &mut State| {
                                 state
                                     .history
                                     .push(PerformedMove::new(*static_coord, *static_move));
                                 state.perform_castle(false, ChessColour::Black);
                                 true
-                            }),
+                            })),
                         });
                     }
                 }

@@ -1,3 +1,8 @@
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
+
 use crate::State;
 
 pub const KNIGHT_MOVES_RAW: [(i8, i8); 8] = [
@@ -34,10 +39,11 @@ pub const QUEEN_OFFSETS: [(i8, i8); 8] = [
     (0, 1),
 ];
 
+#[derive(Clone)]
 pub struct ChessMove {
     pub dst: (u8, u8),
     /// returned boolean stands for if pieces were moved during the function execution
-    pub function: Box<dyn FnMut(&mut State) -> bool>,
+    pub function: Arc<Mutex<dyn FnMut(&mut State) -> bool>>,
 }
 
 impl PartialEq for ChessMove {
@@ -56,18 +62,19 @@ impl ChessMove {
     pub fn dummy(dst: (u8, u8)) -> Self {
         ChessMove {
             dst,
-            function: Box::new(|_| false),
+            function: Arc::new(Mutex::new(|_s: &mut State| false)),
         }
     }
 }
+
+// critically: chess moves need to be sent between threads
+unsafe impl Send for ChessMove {}
 
 #[derive(Clone, Copy)]
 pub struct PerformedMove {
     src: (u8, u8),
     dst: (u8, u8),
 }
-
-use std::fmt;
 
 impl fmt::Display for PerformedMove {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
