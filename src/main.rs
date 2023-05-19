@@ -116,15 +116,21 @@ fn main() -> Result<(), String> {
     let (white_player_tx, white_player_rx) = mpsc::channel();
     let (black_player_tx, black_player_rx) = mpsc::channel();
 
-    let (mut white_player, rx_from_white_player) = HumanPlayer::new(&state, white_player_rx);
-    let (mut black_player, rx_from_black_player) = HumanPlayer::new(&state, black_player_rx);
+    let (mut white_player, rx_from_white_player) =
+        HumanPlayer::new(&state, white_player_rx, ChessColour::White);
+    let (mut black_player, rx_from_black_player) =
+        RandomPlayer::new(&state, black_player_rx, ChessColour::Black);
 
     thread::spawn(move || loop {
-        white_player.tick()
+        white_player.tick();
+        println!("white player tick");
+        thread::sleep(Duration::from_millis(2000));
     });
 
     thread::spawn(move || loop {
-        black_player.tick()
+        black_player.tick();
+        println!("black player tick");
+        thread::sleep(Duration::from_millis(2000));
     });
 
     'running: loop {
@@ -446,7 +452,11 @@ fn main() -> Result<(), String> {
                 state.make_move(white_move.coord, white_move.clone().move_data);
 
                 white_player_tx.send(white_move.clone()).unwrap();
+                println!("sent white player move update");
                 black_player_tx.send(white_move.clone()).unwrap();
+                println!("sent black player move update");
+
+                state.turn = ChessColour::Black;
             }
         }
 
@@ -455,7 +465,11 @@ fn main() -> Result<(), String> {
                 state.make_move(black_move.coord, black_move.clone().move_data);
 
                 white_player_tx.send(black_move.clone()).unwrap();
+                println!("sent white player move update");
                 black_player_tx.send(black_move.clone()).unwrap();
+                println!("sent black player move update");
+
+                state.turn = ChessColour::White;
             }
         }
 

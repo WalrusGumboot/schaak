@@ -122,7 +122,9 @@ impl State {
             let dst = chess_move.dst;
             self[dst].content = Some(Piece {
                 has_moved: true,
-                ..self[src].content.unwrap()
+                ..self[src]
+                    .content
+                    .unwrap_or_else(|| panic!("{:?}", self.squares))
             });
             self[src].content = None;
         };
