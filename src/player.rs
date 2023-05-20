@@ -1,177 +1,131 @@
-use rand::prelude::*;
-use rand::rngs::ThreadRng;
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 use crate::state::State;
-use crate::{chess_move::ChessMove, piece::ChessColour};
+use crate::{chess_move::MoveInfo, piece::ChessColour};
 
 use std::sync::mpsc::{self, Receiver, Sender};
 
-#[derive(Clone)]
-pub struct MoveInfo {
-    pub coord: (u8, u8),
-    pub move_data: ChessMove,
-}
-
-unsafe impl Send for MoveInfo {}
-
-pub trait Player {
-    fn send_move(&mut self) -> Result<(), mpsc::SendError<MoveInfo>>;
-    fn update_internal_state(&mut self, new_move: MoveInfo);
-    fn tick(&mut self);
-}
-
-pub struct HumanPlayer {
-    internal_state: State,
-    selected_move: Option<MoveInfo>,
-    tx_to_main: Sender<MoveInfo>,
-    rx_from_main: Receiver<MoveInfo>,
-    colour: ChessColour,
-}
-
-impl HumanPlayer {
-    pub fn new(
-        state_to_clone: &State,
+pub trait Player: Send + Sized {
+    // takes the receiver from main, which sends moves when they arrive from both this and the other player
+    // returns the struct and the receiving end for moves transmitted from the struct to main
+    fn new(
         rx_from_main: Receiver<MoveInfo>,
+        state_to_clone: &State,
         colour: ChessColour,
-    ) -> (Self, Receiver<MoveInfo>) {
-        let (tx_to_main, rx) = mpsc::channel();
+    ) -> (Self, Receiver<MoveInfo>);
 
-        (
-            HumanPlayer {
-                internal_state: state_to_clone.clone(),
-                selected_move: None,
-                tx_to_main,
-                rx_from_main,
-                colour,
-            },
-            rx,
-        )
-    }
-}
+    // updates coming in from main thread
+    fn receive_move_from_main(&mut self) -> Result<MoveInfo, mpsc::TryRecvError>;
+    // includes player's own moves! they are communicated back by main thread
+    fn apply_move(&mut self, mi: MoveInfo);
 
-impl Player for HumanPlayer {
-    fn send_move(&mut self) -> Result<(), mpsc::SendError<MoveInfo>> {
-        assert!(
-            self.selected_move.is_some(),
-            "Cannot send a move; no move selected."
-        );
+    // move generation and sending to main thread
+    fn return_new_move(&self) -> Option<MoveInfo>;
+    fn ponder_new_move(&mut self);
+    fn send_move_to_main(&mut self) -> Result<(), mpsc::SendError<MoveInfo>>;
 
-        let mi = self.selected_move.clone().unwrap();
-
-        self.tx_to_main.send(mi)?;
-
-        self.selected_move = None;
-
-        Ok(())
-    }
-
-    fn update_internal_state(&mut self, new_move: MoveInfo) {
-        self.internal_state
-            .make_move(new_move.coord, new_move.move_data);
-    }
-
+    // general loop
     fn tick(&mut self) {
-        if let Ok(new_move) = self.rx_from_main.try_recv() {
-            self.update_internal_state(new_move);
+        // potential overload
+        self.specific_tick();
+
+        if self.return_new_move().is_some() {
+            println!("└─ new move is ready!");
+            self.send_move_to_main()
+                .expect("Could not send new move to main");
+            println!("└─ sent new move to main thread.");
         }
 
-        if self.selected_move.is_some() {
-            self.send_move().unwrap_or_else(|err| panic!("err: {err}"));
+        if let Ok(new_move_to_be_applied) = self.receive_move_from_main() {
+            println!(
+                "├─ new move received, from coord {:?}",
+                new_move_to_be_applied.coord
+            );
+            self.apply_move(new_move_to_be_applied);
+        } else {
+            println!("├─ no new move received. ");
+            self.ponder_new_move();
+            println!("└─ started pondering new move.");
         }
     }
-}
 
-unsafe impl Send for HumanPlayer {}
+    fn specific_tick(&mut self) {}
+}
 
 pub struct RandomPlayer {
-    internal_state: State,
-    selected_move: Option<MoveInfo>,
     tx_to_main: Sender<MoveInfo>,
     rx_from_main: Receiver<MoveInfo>,
-    colour: ChessColour,
-    rng: ThreadRng,
-}
 
-impl RandomPlayer {
-    pub fn new(
-        state_to_clone: &State,
-        rx_from_main: Receiver<MoveInfo>,
-        colour: ChessColour,
-    ) -> (Self, Receiver<MoveInfo>) {
-        let (tx_to_main, rx) = mpsc::channel();
-        let thread_rng = thread_rng();
-        (
-            RandomPlayer {
-                internal_state: state_to_clone.clone(),
-                selected_move: None,
-                tx_to_main,
-                rx_from_main,
-                colour,
-                rng: thread_rng,
-            },
-            rx,
-        )
-    }
+    // constructor takes a reference but that gets cloned over
+    // could in theory be useful for e.g. switching to Stockfish mid-game
+    internal_state: State,
+
+    // proper move
+    move_info: Option<MoveInfo>,
+
+    // colour which this player adopts
+    colour: ChessColour,
+
+    // exclusive to RandomPlayer
+    rng: SmallRng,
 }
 
 impl Player for RandomPlayer {
-    fn send_move(&mut self) -> Result<(), mpsc::SendError<MoveInfo>> {
-        assert!(
-            self.selected_move.is_some(),
-            "Cannot send a move; no move selected."
-        );
+    fn new(
+        rx_from_main: Receiver<MoveInfo>,
+        state_to_clone: &State,
+        colour: ChessColour,
+    ) -> (Self, Receiver<MoveInfo>) {
+        let (own_tx, own_rx) = mpsc::channel();
 
-        let mi = self.selected_move.clone().unwrap();
+        (
+            RandomPlayer {
+                rx_from_main,
+                tx_to_main: own_tx,
+                internal_state: state_to_clone.clone(),
+                move_info: None,
+                rng: SmallRng::from_entropy(),
+                colour,
+            },
+            own_rx,
+        )
+    }
 
-        self.tx_to_main.send(mi)?;
+    fn apply_move(&mut self, mi: MoveInfo) {
+        self.internal_state.make_move(mi.coord, mi.move_data);
+    }
 
-        self.selected_move = None;
+    fn receive_move_from_main(&mut self) -> Result<MoveInfo, mpsc::TryRecvError> {
+        self.rx_from_main.try_recv()
+    }
+
+    fn return_new_move(&self) -> Option<MoveInfo> {
+        self.move_info.clone()
+    }
+
+    fn send_move_to_main(&mut self) -> Result<(), mpsc::SendError<MoveInfo>> {
+        self.tx_to_main.send(self.move_info.clone().unwrap())?;
+        self.move_info = None;
 
         Ok(())
     }
 
-    fn update_internal_state(&mut self, new_move: MoveInfo) {
-        self.internal_state
-            .make_move(new_move.coord, new_move.move_data);
+    fn ponder_new_move(&mut self) {
+        let mut currently_available_moves =
+            self.internal_state.get_all_moves_for_colour(self.colour);
+        currently_available_moves.shuffle(&mut self.rng);
+
+        let selected_move = currently_available_moves[0].clone();
+
+        self.move_info = Some(MoveInfo {
+            coord: selected_move.0,
+            move_data: selected_move.1,
+        });
     }
 
-    fn tick(&mut self) {
-        if let Ok(new_move) = self.rx_from_main.try_recv() {
-            self.update_internal_state(new_move);
-        }
-
-        if self.selected_move.is_some() {
-            self.send_move().unwrap_or_else(|err| panic!("err: {err}"));
-        }
-
-        if self.selected_move.is_none() {
-            // we'll pick a random move here
-            let mut all_moves = self
-                .internal_state
-                .squares
-                .iter()
-                .filter(|s| s.content.is_some())
-                .map(|s| (s.coords, s.content.unwrap()))
-                .filter(|(_, p)| p.colour == self.colour)
-                .map(|(c, _)| (c, self.internal_state.get_moves(c, true)))
-                .map(|(c, m)| {
-                    m.iter()
-                        .cloned()
-                        .map(|c_move| (c, c_move))
-                        .collect::<Vec<_>>()
-                })
-                .flatten()
-                .map(|(c, m)| MoveInfo {
-                    coord: c,
-                    move_data: m.clone(),
-                })
-                .collect::<Vec<_>>();
-
-            all_moves.shuffle(&mut self.rng);
-
-            self.selected_move = Some(all_moves[1].clone())
-        }
+    fn specific_tick(&mut self) {
+        println!("tick from {:?} player", self.colour);
     }
 }
-
-unsafe impl Send for RandomPlayer {}

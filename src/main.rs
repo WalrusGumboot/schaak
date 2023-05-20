@@ -113,24 +113,25 @@ fn main() -> Result<(), String> {
 
     // players and their comms
 
-    let (white_player_tx, white_player_rx) = mpsc::channel();
-    let (black_player_tx, black_player_rx) = mpsc::channel();
+    let (tx_to_white_player, rx_to_white_player) = mpsc::channel();
+    let (tx_to_black_player, rx_to_black_player) = mpsc::channel();
 
     let (mut white_player, rx_from_white_player) =
-        HumanPlayer::new(&state, white_player_rx, ChessColour::White);
+        RandomPlayer::new(rx_to_white_player, &state, ChessColour::White);
     let (mut black_player, rx_from_black_player) =
-        RandomPlayer::new(&state, black_player_rx, ChessColour::Black);
+        RandomPlayer::new(rx_to_black_player, &state, ChessColour::Black);
 
     thread::spawn(move || loop {
         white_player.tick();
-        println!("white player tick");
-        thread::sleep(Duration::from_millis(2000));
+        thread::sleep(Duration::from_millis(1000));
     });
 
-    thread::spawn(move || loop {
-        black_player.tick();
-        println!("black player tick");
-        thread::sleep(Duration::from_millis(2000));
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(500));
+        loop {
+            black_player.tick();
+            thread::sleep(Duration::from_millis(1000));
+        }
     });
 
     'running: loop {
@@ -168,33 +169,33 @@ fn main() -> Result<(), String> {
                 // we only want interaction when the game is running;
                 // this mouse check is the only place where input happens.
 
-                if state.game_running {
-                    if mouse_hit && !state.mouse_pressed_previous && md {
-                        if state.selected_square.is_none() {
-                            if square.content.is_some()
-                                && square.content.unwrap().colour == state.turn
-                            {
-                                state.selected_square = Some((x, y));
-                            }
-                        } else {
-                            if state.attempt_move((x, y)) {
-                                state.turn = state.turn.flip();
-                                // every piece that is of the colour whose turn it currently is can now be "de-en passanted"; it is no longer the current turn
-                                let aux_squares = state.squares.clone();
-                                for (idx, s) in aux_squares.into_iter().enumerate() {
-                                    if let Some(p) = s.content {
-                                        if p.colour == state.turn {
-                                            state.squares[idx].content = Some(Piece {
-                                                en_passanteable: false,
-                                                ..p
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // if state.game_running {
+                //     if mouse_hit && !state.mouse_pressed_previous && md {
+                //         if state.selected_square.is_none() {
+                //             if square.content.is_some()
+                //                 && square.content.unwrap().colour == state.turn
+                //             {
+                //                 state.selected_square = Some((x, y));
+                //             }
+                //         } else {
+                //             if state.attempt_move((x, y)) {
+                //                 state.turn = state.turn.flip();
+                //                 // every piece that is of the colour whose turn it currently is can now be "de-en passanted"; it is no longer the current turn
+                //                 let aux_squares = state.squares.clone();
+                //                 for (idx, s) in aux_squares.into_iter().enumerate() {
+                //                     if let Some(p) = s.content {
+                //                         if p.colour == state.turn {
+                //                             state.squares[idx].content = Some(Piece {
+                //                                 en_passanteable: false,
+                //                                 ..p
+                //                             });
+                //                         }
+                //                     }
+                //                 }
+                //             }
+                //         }
+                //     }
+                // }
 
                 let screen_rect = Rect::new(
                     top_left_onscreen.0 as i32,
@@ -445,31 +446,28 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // check if any of the players have a new move to make
+        // check if the player whose turn it is has a new move ready
 
-        if let Ok(white_move) = rx_from_white_player.try_recv() {
-            if state.turn == ChessColour::White {
-                state.make_move(white_move.coord, white_move.clone().move_data);
+        match state.turn {
+            ChessColour::White => {
+                if let Ok(new_white_move) = rx_from_white_player.try_recv() {
+                    // the white player has a new move ready
+                    state.make_move(new_white_move.coord, new_white_move.move_data.clone());
 
-                white_player_tx.send(white_move.clone()).unwrap();
-                println!("sent white player move update");
-                black_player_tx.send(white_move.clone()).unwrap();
-                println!("sent black player move update");
-
-                state.turn = ChessColour::Black;
+                    // it now needs to be echoed to the other players
+                    tx_to_white_player.send(new_white_move.clone());
+                    tx_to_black_player.send(new_white_move.clone());
+                }
             }
-        }
+            ChessColour::Black => {
+                if let Ok(new_black_move) = rx_from_black_player.try_recv() {
+                    // the white player has a new move ready
+                    state.make_move(new_black_move.coord, new_black_move.move_data.clone());
 
-        if let Ok(black_move) = rx_from_black_player.try_recv() {
-            if state.turn == ChessColour::Black {
-                state.make_move(black_move.coord, black_move.clone().move_data);
-
-                white_player_tx.send(black_move.clone()).unwrap();
-                println!("sent white player move update");
-                black_player_tx.send(black_move.clone()).unwrap();
-                println!("sent black player move update");
-
-                state.turn = ChessColour::White;
+                    // it now needs to be echoed to the other players
+                    tx_to_white_player.send(new_black_move.clone());
+                    tx_to_black_player.send(new_black_move.clone());
+                }
             }
         }
 

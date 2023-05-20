@@ -129,8 +129,26 @@ impl State {
             self[src].content = None;
         };
 
-        // explicit drop call
+        self.turn = self.turn.flip();
+
+        // explicit drop call for mutex stuff
         drop(function);
+    }
+
+    pub fn get_all_moves_for_colour(&self, col: ChessColour) -> Vec<((u8, u8), ChessMove)> {
+        self.squares
+            .iter()
+            .map(|s| (s.coords, s.content))
+            .filter(|(coord, content)| content.is_some())
+            .map(|(coord, content)| {
+                self.get_moves(coord, true)
+                    .iter()
+                    .cloned()
+                    .map(|generated_move| (coord, generated_move))
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect()
     }
 
     // returns whether or not the move was correctly carried out

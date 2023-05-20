@@ -94,3 +94,11 @@ impl PerformedMove {
         PerformedMove { src, dst }
     }
 }
+
+#[derive(Clone)]
+pub struct MoveInfo {
+    pub coord: (u8, u8),
+    pub move_data: ChessMove,
+}
+
+unsafe impl Send for MoveInfo {}
